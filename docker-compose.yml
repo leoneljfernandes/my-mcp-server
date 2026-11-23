@@ -16,6 +16,7 @@ services:
       SKILLS_DIR: /app/skills_store
       ROLES_CONFIG_PATH: /app/config/roles.yaml
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MCP_ALLOW_UNAUTHENTICATED: ${MCP_ALLOW_UNAUTHENTICATED:-false}
     # Descomentá para desarrollo local usando tu skills_store sincronizado en el host:
     # volumes:
     #   - ./skills_store:/app/skills_store:ro

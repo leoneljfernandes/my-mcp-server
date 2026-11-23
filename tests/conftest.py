@@ -30,7 +30,13 @@ def sample_skills_dir(tmp_path: Path) -> Path:
     _write(
         root / "superpowers/skills/test-driven-development/SKILL.md",
         "---\nname: test-driven-development\ndescription: Enforce red-green-refactor TDD cycles.\n---\n"
-        "# TDD\nWrite a failing test first, watch it fail, then implement minimal code.\n",
+        "# TDD\nWrite a failing test first, watch it fail, then implement minimal code.\n"
+        "REQUIRED: superpowers:writing-plans, superpowers:brainstorming, superpowers:no-existe\n",
+    )
+    _write(
+        root / "superpowers/skills/writing-plans/SKILL.md",
+        "---\nname: writing-plans\ndescription: Write implementation plans from specs.\n---\n"
+        "# Writing Plans\nBreak work into small tasks.\n",
     )
 
     # 2. my_skills (2-level nested categories + references/*.md)
@@ -130,6 +136,10 @@ precedence_rules: |
   2. my_skills (architecture)
   3. modern-web-guidance (web platform)
 
+shared_on_demand:
+  - superpowers/skills/brainstorming
+  - superpowers/skills/test-driven-development
+
 roles:
   backend:
     description: Backend FastAPI engineer
@@ -147,6 +157,12 @@ roles:
     core:
       - my_skills/skills/database/*
       - my_skills/skills/nonexistent-folder
+    on_demand: []
+  frontend:
+    description: Frontend engineer
+    web_guidance: true
+    core:
+      - superpowers/skills/brainstorming
     on_demand: []
 """.strip()
         + "\n",

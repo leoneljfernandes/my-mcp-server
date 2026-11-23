@@ -19,7 +19,7 @@ def test_list_roles_deduplicates_core_from_on_demand_and_tracks_missing(
     registry: SkillRegistry,
 ) -> None:
     roles = {r.name: r for r in registry.list_roles()}
-    assert set(roles) == {"backend", "db"}
+    assert set(roles) == {"backend", "db", "frontend"}
 
     # backend core has 3 items (tdd, layering-fastapi-apps, security.md).
     # on_demand globs backend/* (contains layering-fastapi-apps already in core + scaffolding)
@@ -159,3 +159,97 @@ def test_bootstrap_agent_prompt_includes_precedence_skills_and_task(
     assert "superpowers (process)" in prompt
     assert "Implementar endpoint /orders" in prompt
     assert "Keep HTTP routers thin" in prompt
+
+
+def test_shared_on_demand_listed_in_every_role_and_deduplicated(registry: SkillRegistry) -> None:
+    for role in ("backend", "db"):
+        shared = registry.get_role_skills(role).split("## Catálogo Compartido")[1]
+        assert "`superpowers` / `brainstorming`" in shared
+    backend_shared = registry.get_role_skills("backend").split("## Catálogo Compartido")[1]
+    assert "`superpowers` / `test-driven-development`" not in backend_shared  # ya es core
+    db_shared = registry.get_role_skills("db").split("## Catálogo Compartido")[1]
+    assert "`superpowers` / `test-driven-development`" in db_shared
+
+
+def test_shared_catalog_stays_catalog_with_include_on_demand(registry: SkillRegistry) -> None:
+    bundle = registry.get_role_skills("db", include_on_demand=True)
+    shared = bundle.split("## Catálogo Compartido")[1]
+    assert "`superpowers` / `brainstorming`" in shared
+    assert "Always align on design before coding." not in bundle
+
+
+def test_allowed_skill_ids_union(registry: SkillRegistry) -> None:
+    ids = registry.allowed_skill_ids("backend")
+    assert ("superpowers", "brainstorming") in ids
+    assert ("my_skills", "layering-fastapi-apps") in ids
+    assert not any(source == "modern-web-guidance" for source, _ in ids)
+
+
+def test_web_guidance_flag_adds_catalog_line_and_allows_guides(registry: SkillRegistry) -> None:
+    assert "Modern Web Guidance" not in registry.get_role_skills("backend")
+    bundle = registry.get_role_skills("frontend")
+    assert "Modern Web Guidance" in bundle
+    assert "3 guías" in bundle
+    assert "security, ui-atoms, ui-behaviors" in bundle
+    ids = registry.allowed_skill_ids("frontend")
+    assert ("modern-web-guidance", "client-side-encryption") in ids
+
+
+def test_check_role_integrity_reports_kinds(registry: SkillRegistry) -> None:
+    found = {(i.role, i.kind, i.target) for i in registry.check_role_integrity()}
+    assert ("backend", "unknown_reference", "no-existe") in found
+    assert ("backend", "unassigned_reference", "writing-plans") in found
+    assert ("backend", "unassigned_reference", "brainstorming") not in found  # está en shared
+    assert ("db", "missing_pattern", "my_skills/skills/nonexistent-folder") in found
+
+
+def test_search_without_role_keeps_all_sources(registry: SkillRegistry) -> None:
+    hits = registry.search_skills("animate dialog top layer")
+    assert hits[0].id == "animate-to-from-top-layer"
+
+
+def test_role_with_web_guidance_includes_guides(registry: SkillRegistry) -> None:
+    hits = registry.search_skills("animate dialog top layer", role="frontend")
+    assert hits[0].id == "animate-to-from-top-layer"
+    assert all(
+        h.source != "modern-web-guidance"
+        for h in registry.search_skills("animate dialog top layer", role="backend")
+    )
+
+
+def test_search_scoped_to_role(registry: SkillRegistry) -> None:
+    backend_ids = [h.id for h in registry.search_skills("prometheus metrics", role="backend")]
+    assert "exposing-prometheus-metrics" in backend_ids
+    db_hits = registry.search_skills("prometheus metrics", role="db")
+    assert "exposing-prometheus-metrics" not in [h.id for h in db_hits]
+    assert all((h.source, h.id) in registry.allowed_skill_ids("db") for h in db_hits)
+
+
+def test_search_unknown_role_raises(registry: SkillRegistry) -> None:
+    with pytest.raises(RoleNotFoundError):
+        registry.search_skills("x", role="nope")
+
+
+def test_token_estimates_exposed(registry: SkillRegistry) -> None:
+    assert all(s.token_estimate > 0 for s in registry.list_skills())
+    assert all(r.core_tokens > 0 for r in registry.list_roles() if r.core_count)
+
+
+def test_role_search_not_starved_by_out_of_role_candidates(
+    sample_skills_dir: Path, sample_roles_yaml: Path
+) -> None:
+    for i in range(230):
+        noise = sample_skills_dir / f"my_skills/skills/noise/noise-{i}/SKILL.md"
+        noise.parent.mkdir(parents=True)
+        noise.write_text(
+            f"---\nname: noise-{i}\ndescription: prometheus metrics prometheus metrics.\n---\n"
+            "# Noise\nprometheus metrics prometheus metrics prometheus metrics.\n",
+            encoding="utf-8",
+        )
+    reg = SkillRegistry(skills_dir=sample_skills_dir, roles_config_path=sample_roles_yaml)
+    try:
+        hits = reg.search_skills("prometheus metrics", role="backend", limit=1)
+        assert len(hits) == 1
+        assert (hits[0].source, hits[0].id) in reg.allowed_skill_ids("backend")
+    finally:
+        reg.close()

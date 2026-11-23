@@ -37,12 +37,14 @@ class RoleConfig(BaseModel):
     instructions: str = ""
     core: list[str] = Field(default_factory=list)
     on_demand: list[str] = Field(default_factory=list)
+    web_guidance: bool = False
 
 
 class RolesFileConfig(BaseModel):
     """Root schema for config/roles.yaml."""
 
     precedence_rules: str = ""
+    shared_on_demand: list[str] = Field(default_factory=list)
     roles: dict[str, RoleConfig] = Field(default_factory=dict)
 
 
@@ -54,6 +56,9 @@ class RoleSummary(BaseModel):
     core_count: int = Field(description="Number of core skills always injected for this role")
     on_demand_count: int = Field(
         description="Number of on-demand skills cataloged for progressive loading"
+    )
+    core_tokens: int = Field(
+        default=0, description="Estimated token cost of the role's core skills bundle"
     )
     missing_patterns: list[str] = Field(
         default_factory=list,
@@ -74,6 +79,18 @@ class SkillSummary(BaseModel):
         default_factory=list,
         description="Auxiliary reference Markdown files inside this skill (relative to source)",
     )
+    token_estimate: int = Field(
+        default=0, description="Estimated token cost of loading this skill (precomputed or chars/4)"
+    )
+
+
+class RoleIntegrityIssue(BaseModel):
+    """A configuration problem found by `SkillRegistry.check_role_integrity`."""
+
+    role: str = Field(description="Role where the issue was found")
+    skill: str = Field(description="Skill id containing the reference (empty for missing patterns)")
+    kind: Literal["missing_pattern", "unknown_reference", "unassigned_reference"]
+    target: str = Field(description="Offending pattern or referenced superpowers skill id")
 
 
 class SearchHit(BaseModel):

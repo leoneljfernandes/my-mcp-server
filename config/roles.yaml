@@ -10,9 +10,27 @@
 
 precedence_rules: |
   ### Jerarquía de Precedencia entre Fuentes
-  1. **obra/superpowers (Proceso e ingeniería):** gobierna *cómo* trabajás (brainstorming, planificación, TDD, debugging sistemático, verificación antes de cerrar y code review).
-  2. **my_skills (Arquitectura y decisiones de stack):** gobierna *con qué y cómo* se construye el proyecto (scaffolding, FastAPI, PostgreSQL/SQLAlchemy/Alembic, React, observabilidad y testing).
-  3. **modern-web-guidance (Plataforma web moderna):** gobierna *qué APIs nativas* de HTML/CSS/JS usar en el navegador, adaptándolas al stack de `my_skills` sin degradar a patrones o librerías obsoletas.
+  Cada fuente responde una pregunta distinta; se complementan, no compiten.
+  1. **obra/superpowers — cómo trabajás:** brainstorming, planes, TDD, debugging sistemático, verificación y code review. Aplica a todos los roles.
+  2. **modern-web-guidance — fuente principal en código de cliente:** para HTML, CSS, JS de navegador, formularios, accesibilidad, rendimiento web y seguridad de cliente, la guía decide la API o el patrón de plataforma. Se consulta antes de implementar.
+  3. **my_skills — cómo encaja en el stack:** decide la arquitectura (React 19 + React Router data mode + Axios, FastAPI, PostgreSQL/SQLAlchemy/Alembic, observabilidad, testing). En el cliente integra el patrón de modern-web-guidance en esa arquitectura; fuera del navegador es la autoridad técnica.
+
+  Desempates en el cliente:
+  - **Formularios:** formato y obligatoriedad con validación nativa (`required`, `type`, `pattern`, `:user-invalid` + puente a `aria-invalid`) según modern-web-guidance; errores de negocio (422/409) como estado de la action según `using-react-19-actions`, pintados en el mismo lugar del campo.
+  - **Rendimiento:** carga, prioridad de recursos, INP y long tasks según modern-web-guidance; re-renders, memoización y virtualización de listas interactivas según `optimizing-react-renders`.
+  - **Seguridad:** CSP, Trusted Types, sanitización de HTML y passkeys según modern-web-guidance; tokens (access en memoria, refresh en cookie httpOnly) y refresh según `building-axios-clients`.
+  - **Navegación:** View Transitions según modern-web-guidance, activadas desde el router de `routing-with-react-router`.
+  - Si no se pueden conciliar: la API de plataforma la decide modern-web-guidance y la estructura my_skills; si aun así chocan, anotalo en el plan y escalalo al supervisor.
+
+# Catálogo anunciado en todos los roles (nombre + descripción, sin cargar contenido).
+shared_on_demand:
+  - superpowers/skills/executing-plans
+  - superpowers/skills/subagent-driven-development
+  - superpowers/skills/using-git-worktrees
+  - superpowers/skills/finishing-a-development-branch
+  - superpowers/skills/test-driven-development
+  - superpowers/skills/systematic-debugging
+  - superpowers/skills/writing-skills
 
 roles:
   supervisor:
@@ -47,7 +65,8 @@ roles:
       - superpowers/skills/verification-before-completion
       - superpowers/skills/receiving-code-review
       - my_skills/skills/database/*
-    on_demand: []
+    on_demand:
+      - my_skills/skills/testing/testing-fastapi-endpoints
 
   backend:
     description: >-
@@ -57,6 +76,7 @@ roles:
       Construí seguro por defecto: validación estricta con Pydantic, autorización explícita
       en cada endpoint (anti-IDOR), cookies seguras, sin filtrar stacktraces ni secretos/PII en logs.
       Usá `get_skill` sobre el catálogo `on_demand` cuando toques scaffolding, settings, observabilidad o seguridad avanzada.
+      Al escribir tests cargá `testing-fastapi-endpoints` (integración) o `unit-testing-fastapi-services` (lógica de servicio).
     core:
       - superpowers/skills/test-driven-development
       - superpowers/skills/systematic-debugging
@@ -68,8 +88,10 @@ roles:
     on_demand:
       - my_skills/skills/backend/*
       - my_skills/skills/observability/*
+      - my_skills/skills/testing/*
 
   frontend:
+    web_guidance: true
     description: >-
       Ingeniero Frontend React/Web moderna: arquitectura SPA/SSR, clientes HTTP,
       manejo de errores, rendimiento y APIs nativas de plataforma web.
@@ -89,6 +111,7 @@ roles:
       - my_skills/skills/frontend/*
 
   qa:
+    web_guidance: true
     description: >-
       Ingeniero de QA y Testing: pruebas unitarias y de integración, validación de contratos,
       revisión de código y verificación de controles básicos de seguridad.
@@ -105,6 +128,7 @@ roles:
     on_demand: []
 
   security:
+    web_guidance: true
     description: >-
       AppSec Reviewer: auditoría de seguridad en paralelo con QA como gate obligatorio previo al PR.
     instructions: >-
@@ -121,3 +145,20 @@ roles:
       - superpowers/skills/verification-before-completion
       - my_skills/skills/backend/scaffolding-fastapi-backends/references/security.md
     on_demand: []
+
+  observability:
+    description: >-
+      SRE/Observabilidad: métricas Prometheus, logs JSON a Loki, trazas OpenTelemetry/Tempo,
+      SLOs y alertas en Grafana, más contenedores y CI.
+    instructions: >-
+      Toda métrica/log/span nuevo se verifica contra el stack real (Prometheus/Loki/Tempo) antes de cerrar;
+      sin PII en labels ni logs; cardinalidad de labels acotada.
+    core:
+      - superpowers/skills/test-driven-development
+      - superpowers/skills/systematic-debugging
+      - superpowers/skills/verification-before-completion
+      - my_skills/skills/observability/*
+    on_demand:
+      - my_skills/skills/backend/scaffolding-fastapi-backends/references/docker.md
+      - my_skills/skills/backend/scaffolding-fastapi-backends/references/ci.md
+      - my_skills/skills/backend/configuring-fastapi-settings

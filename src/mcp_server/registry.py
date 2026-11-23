@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from mcp_server.models import (
     InputValidationError,
     PathTraversalError,
     RoleConfig,
+    RoleIntegrityIssue,
     RoleNotFoundError,
     RolesFileConfig,
     RoleSummary,
@@ -34,6 +36,7 @@ MAX_SEARCH_LIMIT = 25
 MAX_GUIDE_IDS = 5
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
+_SUPERPOWERS_REF_RE = re.compile(r"superpowers:([a-z0-9-]+)")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 _STOPWORDS: frozenset[str] = frozenset(
     {
@@ -75,13 +78,19 @@ _STOPWORDS: frozenset[str] = frozenset(
 )
 
 DEFAULT_PRECEDENCE_RULES = (
-    "### Jerarquía de Precedencia entre Fuentes\n"
-    "1. **obra/superpowers (Proceso e ingeniería):** gobierna *cómo* trabajás "
-    "(brainstorming, planificación, TDD, debugging sistemático, verificación antes de cerrar y code review).\n"
-    "2. **my_skills (Arquitectura y decisiones de stack):** gobierna *con qué y cómo* se construye el proyecto "
-    "(scaffolding, FastAPI, PostgreSQL/SQLAlchemy/Alembic, React, observabilidad y testing).\n"
-    "3. **modern-web-guidance (Plataforma web moderna):** gobierna *qué APIs nativas* de HTML/CSS/JS usar en el navegador, "
-    "adaptándolas al stack de `my_skills` sin degradar a patrones o librerías obsoletas."
+    """### Jerarquía de Precedencia entre Fuentes
+Cada fuente responde una pregunta distinta; se complementan, no compiten.
+1. **obra/superpowers — cómo trabajás:** brainstorming, planes, TDD, debugging sistemático, verificación y code review. Aplica a todos los roles.
+2. **modern-web-guidance — fuente principal en código de cliente:** para HTML, CSS, JS de navegador, formularios, accesibilidad, rendimiento web y seguridad de cliente, la guía decide la API o el patrón de plataforma. Se consulta antes de implementar.
+3. **my_skills — cómo encaja en el stack:** decide la arquitectura (React 19 + React Router data mode + Axios, FastAPI, PostgreSQL/SQLAlchemy/Alembic, observabilidad, testing). En el cliente integra el patrón de modern-web-guidance en esa arquitectura; fuera del navegador es la autoridad técnica.
+
+Desempates en el cliente:
+- **Formularios:** formato y obligatoriedad con validación nativa (`required`, `type`, `pattern`, `:user-invalid` + puente a `aria-invalid`) según modern-web-guidance; errores de negocio (422/409) como estado de la action según `using-react-19-actions`, pintados en el mismo lugar del campo.
+- **Rendimiento:** carga, prioridad de recursos, INP y long tasks según modern-web-guidance; re-renders, memoización y virtualización de listas interactivas según `optimizing-react-renders`.
+- **Seguridad:** CSP, Trusted Types, sanitización de HTML y passkeys según modern-web-guidance; tokens (access en memoria, refresh en cookie httpOnly) y refresh según `building-axios-clients`.
+- **Navegación:** View Transitions según modern-web-guidance, activadas desde el router de `routing-with-react-router`.
+- Si no se pueden conciliar: la API de plataforma la decide modern-web-guidance y la estructura my_skills; si aun así chocan, anotalo en el plan y escalalo al supervisor.
+"""
 )
 
 
@@ -110,6 +119,7 @@ class ResolvedRole:
     config: RoleConfig
     core: tuple[IndexedSkill, ...]
     on_demand: tuple[IndexedSkill, ...]
+    shared: tuple[IndexedSkill, ...] = ()
     missing_patterns: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -173,6 +183,13 @@ def _token_overlap_count(query_tokens: list[str], target_text: str) -> int:
         if any(t.startswith(q_tok) or q_tok.startswith(t) for t in target_tokens if len(t) > 2):
             matched += 1
     return matched
+
+
+def _estimate_tokens(skill: IndexedSkill) -> int:
+    """Token cost of a skill: precomputed count if available, else ceil(chars / 4)."""
+    if skill.token_count is not None:
+        return skill.token_count
+    return math.ceil(len(skill.content) / 4)
 
 
 def _validate_search_args(query: str, limit: int) -> tuple[str, int]:
@@ -496,6 +513,25 @@ class SkillRegistry:
         return resolved_skills
 
     def _resolve_all_roles(self) -> None:
+        shared_all: list[IndexedSkill] = []
+        shared_missing: list[str] = []
+        shared_seen: set[Path] = set()
+        for pattern in self._roles_file.shared_on_demand:
+            try:
+                matched = self._expand_pattern(pattern)
+            except PathTraversalError as exc:
+                LOGGER.warning("Skipping unsafe shared_on_demand pattern %r: %s", pattern, exc)
+                shared_missing.append(pattern)
+                continue
+            if not matched:
+                LOGGER.warning("shared_on_demand pattern matched no skills: %s", pattern)
+                shared_missing.append(pattern)
+                continue
+            for skill in matched:
+                if skill.absolute_path not in shared_seen:
+                    shared_seen.add(skill.absolute_path)
+                    shared_all.append(skill)
+
         for role_name, role_cfg in self._roles_file.roles.items():
             seen_paths: set[Path] = set()
             missing: list[str] = []
@@ -548,7 +584,8 @@ class SkillRegistry:
                 config=role_cfg,
                 core=tuple(core_items),
                 on_demand=tuple(on_demand_items),
-                missing_patterns=tuple(missing),
+                shared=tuple(s for s in shared_all if s.absolute_path not in seen_paths),
+                missing_patterns=tuple(missing + shared_missing),
             )
 
     # ------------------------------------------------------------------
@@ -561,6 +598,7 @@ class SkillRegistry:
                 description=resolved.config.description,
                 core_count=len(resolved.core),
                 on_demand_count=len(resolved.on_demand),
+                core_tokens=sum(_estimate_tokens(sk) for sk in resolved.core),
                 missing_patterns=list(resolved.missing_patterns),
             )
             for resolved in self._resolved_roles.values()
@@ -582,6 +620,7 @@ class SkillRegistry:
                         description=item.description,
                         category=item.category,
                         references=list(item.references),
+                        token_estimate=_estimate_tokens(item),
                     )
                 )
         return results
@@ -623,7 +662,58 @@ class SkillRegistry:
                         f"- **`{skill.source}` / `{skill.id}`** (`{skill.relative_path}`): {desc}"
                     )
 
+        if resolved.shared or resolved.config.web_guidance:
+            sections.append(
+                "\n## Catálogo Compartido (disponible para todos los roles vía `get_skill`)"
+            )
+            for skill in resolved.shared:
+                desc = skill.description or "Sin descripción"
+                sections.append(
+                    f"- **`{skill.source}` / `{skill.id}`** (`{skill.relative_path}`): {desc}"
+                )
+            if resolved.config.web_guidance:
+                guides = list(self._web_guides_by_id.values())
+                categories = ", ".join(sorted({g.category for g in guides if g.category}))
+                sections.append(
+                    f"- **Modern Web Guidance** ({len(guides)} guías, fuente principal para código de cliente): "
+                    f"categorías {categories}. Usá `search_modern_web_guidance` + `retrieve_modern_web_guidance`."
+                )
+
         return "\n\n".join(sections).strip() + "\n"
+
+    def allowed_skill_ids(self, role: str) -> frozenset[tuple[SourceName, str]]:
+        """IDs (source, id) of core, on-demand and shared skills of a role (plus all web guides if enabled)."""
+        resolved = self._resolved_roles.get(role)
+        if resolved is None:
+            available = ", ".join(sorted(self._resolved_roles))
+            raise RoleNotFoundError(f"Unknown role {role!r}. Available roles: {available}")
+        skills = [*resolved.core, *resolved.on_demand, *resolved.shared]
+        if resolved.config.web_guidance:
+            skills.extend(self._web_guides_by_id.values())
+        return frozenset((s.source, s.id) for s in skills)
+
+    def check_role_integrity(self) -> list[RoleIntegrityIssue]:
+        """Report unmatched role patterns and unresolved `superpowers:<id>` cross-references."""
+        issues: set[tuple[str, str, str, str]] = set()
+        for role_name, resolved in self._resolved_roles.items():
+            for pattern in resolved.missing_patterns:
+                issues.add((role_name, "", "missing_pattern", pattern))
+            allowed = self.allowed_skill_ids(role_name)
+            for skill in (*resolved.core, *resolved.on_demand):
+                for ref in set(_SUPERPOWERS_REF_RE.findall(skill.content)):
+                    if ("superpowers", ref) not in self._skills_by_source_and_id:
+                        issues.add((role_name, skill.id, "unknown_reference", ref))
+                    elif ("superpowers", ref) not in allowed:
+                        issues.add((role_name, skill.id, "unassigned_reference", ref))
+        return [
+            RoleIntegrityIssue(
+                role=role,
+                skill=skill,
+                kind=cast(Any, kind),
+                target=target,
+            )
+            for role, skill, kind, target in sorted(issues)
+        ]
 
     def _format_skill_block(self, skill: IndexedSkill) -> str:
         header = f"### [{skill.source}] {skill.name} (`{skill.relative_path}`)"
@@ -687,13 +777,16 @@ class SkillRegistry:
         *,
         source: SourceName | None,
         limit: int,
+        allowed: frozenset[tuple[SourceName, str]] | None = None,
     ) -> list[tuple[sqlite3.Row, float]]:
         tokens = _extract_query_tokens(query)
         fts_expr = _build_fts_query(tokens)
         if fts_expr is None:
             return []
 
-        candidate_limit = max(limit * 6, 30)
+        # With a role filter, candidates are filtered after the query: do not cap the pool,
+        # or out-of-role docs could crowd in-role ones out of the top N.
+        candidate_limit = -1 if allowed is not None else max(limit * 6, 30)
         sql_base = (
             "SELECT source, skill_id, name, relative_path, "
             "-bm25(skills_fts, 0.0, 0.0, 8.0, 3.0, 5.0, 0.0, 1.0) AS score, "
@@ -724,6 +817,8 @@ class SkillRegistry:
                 final_score = base_score + (name_hits * 6.0) + (desc_hits * 3.0)
             else:
                 final_score = base_score
+            if allowed is not None and (src, sid) not in allowed:
+                continue
             reranked.append((row, final_score))
 
         reranked.sort(key=lambda item: item[1], reverse=True)
@@ -735,12 +830,14 @@ class SkillRegistry:
         *,
         source: SourceName | None = None,
         limit: int = 10,
+        role: str | None = None,
     ) -> list[SearchHit]:
         cleaned, valid_limit = _validate_search_args(query, limit)
+        allowed = self.allowed_skill_ids(role) if role is not None else None
         if source is not None and source not in VALID_SOURCES:
             raise InputValidationError(f"Unknown source {source!r}; valid sources: {VALID_SOURCES}")
 
-        scored_rows = self._run_fts_query(cleaned, source=source, limit=valid_limit)
+        scored_rows = self._run_fts_query(cleaned, source=source, limit=valid_limit, allowed=allowed)
         return [
             SearchHit(
                 source=cast(SourceName, str(row["source"])),

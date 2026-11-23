@@ -28,9 +28,9 @@ def real_registry() -> SkillRegistry:
     reg.close()
 
 
-def test_all_six_roles_loaded_from_real_corpus(real_registry: SkillRegistry) -> None:
+def test_all_roles_loaded_from_real_corpus(real_registry: SkillRegistry) -> None:
     roles = {r.name: r for r in real_registry.list_roles()}
-    assert set(roles) == {"supervisor", "db", "backend", "frontend", "qa", "security"}
+    assert set(roles) == {"supervisor", "db", "backend", "frontend", "qa", "security", "observability"}
     for name, role in roles.items():
         assert role.core_count >= 1, f"Role {name} has no core skills loaded"
 
@@ -80,3 +80,26 @@ def test_search_modern_web_guidance_top3_retrieval(
     hits = real_registry.search_modern_web_guidance(query, limit=3)
     top3_ids = [h.id for h in hits]
     assert expected_id in top3_ids, f"Query {query!r}: expected {expected_id!r} in Top-3 {top3_ids}"
+
+
+def test_real_roles_have_no_integrity_issues(real_registry: SkillRegistry) -> None:
+    assert real_registry.check_role_integrity() == []
+
+
+@pytest.mark.parametrize(
+    ("query", "role"),
+    [
+        ("migración sin downtime alembic", "db"),
+        ("alertas burn rate slo", "observability"),
+    ],
+)
+def test_role_search_has_no_web_guidance_noise(
+    real_registry: SkillRegistry, query: str, role: str
+) -> None:
+    hits = real_registry.search_skills(query, role=role, limit=3)
+    assert hits and all(h.source != "modern-web-guidance" for h in hits)
+
+
+def test_frontend_form_validation_surfaces_web_guidance(real_registry: SkillRegistry) -> None:
+    hits = real_registry.search_skills("validate input after interaction form", role="frontend", limit=3)
+    assert "validate-input-after-interaction" in [h.id for h in hits]

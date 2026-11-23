@@ -1,0 +1,80 @@
+name: Update skill sources
+
+on:
+  schedule:
+    # Propone actualizar las fuentes cada lunes a las 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-skills
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Resolve latest sources and open PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.14
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Sync to latest and rewrite lock
+        env:
+          GITHUB_TOKEN: ${{ secrets.MY_SKILLS_GITHUB_TOKEN }}
+        run: uv run python scripts/sync_skills.py --update-lock
+
+      - name: Run retrieval evals against new sources
+        run: uv run pytest -m eval -q
+
+      - name: Build PR body
+        run: |
+          git show HEAD:config/sources.lock.json > /tmp/old.lock.json
+          uv run python - <<'PY' > /tmp/pr-body.md
+          import json
+
+          old = json.load(open("/tmp/old.lock.json"))
+          new = json.load(open("config/sources.lock.json"))
+          repos = {
+              "superpowers": "obra/superpowers",
+              "my_skills": "leoneljfernandes/my_skills",
+          }
+          print("Actualización automática de `config/sources.lock.json`.\n")
+          for name, repo in repos.items():
+              o = old.get(name, {}).get("ref")
+              n = new.get(name, {}).get("ref")
+              if o and n and o != n and len(n) == 40:
+                  print(f"- **{name}**: https://github.com/{repo}/compare/{o}...{n}")
+          o = old.get("modern-web-guidance", {}).get("version")
+          n = new.get("modern-web-guidance", {}).get("version")
+          if o != n:
+              print(f"- **modern-web-guidance**: {o} -> {n}")
+          PY
+
+      - name: Open or update pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: bot/update-skills
+          add-paths: config/sources.lock.json
+          commit-message: "chore(sync): update skill sources"
+          title: "chore(sync): update skill sources"
+          body-path: /tmp/pr-body.md
