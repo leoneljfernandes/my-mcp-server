@@ -784,7 +784,9 @@ class SkillRegistry:
         if fts_expr is None:
             return []
 
-        candidate_limit = 200 if allowed is not None else max(limit * 6, 30)
+        # With a role filter, candidates are filtered after the query: do not cap the pool,
+        # or out-of-role docs could crowd in-role ones out of the top N.
+        candidate_limit = -1 if allowed is not None else max(limit * 6, 30)
         sql_base = (
             "SELECT source, skill_id, name, relative_path, "
             "-bm25(skills_fts, 0.0, 0.0, 8.0, 3.0, 5.0, 0.0, 1.0) AS score, "

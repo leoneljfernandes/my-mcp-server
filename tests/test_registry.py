@@ -233,3 +233,23 @@ def test_search_unknown_role_raises(registry: SkillRegistry) -> None:
 def test_token_estimates_exposed(registry: SkillRegistry) -> None:
     assert all(s.token_estimate > 0 for s in registry.list_skills())
     assert all(r.core_tokens > 0 for r in registry.list_roles() if r.core_count)
+
+
+def test_role_search_not_starved_by_out_of_role_candidates(
+    sample_skills_dir: Path, sample_roles_yaml: Path
+) -> None:
+    for i in range(230):
+        noise = sample_skills_dir / f"my_skills/skills/noise/noise-{i}/SKILL.md"
+        noise.parent.mkdir(parents=True)
+        noise.write_text(
+            f"---\nname: noise-{i}\ndescription: prometheus metrics prometheus metrics.\n---\n"
+            "# Noise\nprometheus metrics prometheus metrics prometheus metrics.\n",
+            encoding="utf-8",
+        )
+    reg = SkillRegistry(skills_dir=sample_skills_dir, roles_config_path=sample_roles_yaml)
+    try:
+        hits = reg.search_skills("prometheus metrics", role="backend", limit=1)
+        assert len(hits) == 1
+        assert (hits[0].source, hits[0].id) in reg.allowed_skill_ids("backend")
+    finally:
+        reg.close()
