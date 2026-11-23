@@ -8,7 +8,7 @@ Servidor MCP (FastMCP v4) que sirve a agentes de desarrollo tres fuentes de skil
 | `my_skills` | decisiones de arquitectura y stack (FastAPI, PostgreSQL/SQLAlchemy/Alembic, React 19, observabilidad, testing) | [leoneljfernandes/my_skills](https://github.com/leoneljfernandes/my_skills) |
 | `modern-web-guidance` | qué APIs nativas de la plataforma web usar en el cliente | paquete npm `modern-web-guidance` |
 
-Los roles (`config/roles.yaml`) definen qué skills se inyectan siempre (`core`) y cuáles se ofrecen como catálogo (`on_demand`). Todas las skills siguen accesibles con `get_skill` y `search_skills`.
+Los roles (`config/roles.yaml`) definen qué skills se inyectan siempre (`core`) y cuáles se ofrecen como catálogo (`on_demand`). Roles: `supervisor`, `db`, `backend`, `frontend`, `qa`, `security`, `observability`. Todas las skills siguen accesibles con `get_skill` y `search_skills`; `search_skills(query, role=...)` restringe la búsqueda a las skills del rol (las guías de `modern-web-guidance` solo para los roles con `web_guidance: true`: frontend, qa, security). El catálogo `shared_on_demand` aparece en el bundle de todos los roles.
 
 ## Uso rápido
 
@@ -18,7 +18,7 @@ uv run python scripts/sync_skills.py      # descarga las tres fuentes a ./skills
 uv run devteam-skills-mcp                 # stdio (IDE / CLI)
 ```
 
-En modo HTTP (`MCP_TRANSPORT=streamable-http`) definí `MCP_API_KEY`; ver `.env.example`. Docker: `docker compose up --build`. Cliente LangGraph de ejemplo en `examples/langgraph_client.py`.
+En modo HTTP (`MCP_TRANSPORT=streamable-http`: Docker, compose, Render, Cloud Run) el servidor **no arranca sin `MCP_API_KEY`** (un valor solo con espacios cuenta como ausente). Solo para desarrollo local se puede desactivar con `MCP_ALLOW_UNAUTHENTICATED=true`; stdio no necesita clave. Ver `.env.example`. Docker: `docker compose up --build`. Cliente LangGraph de ejemplo en `examples/langgraph_client.py`.
 
 ## Tools
 
@@ -26,7 +26,20 @@ En modo HTTP (`MCP_TRANSPORT=streamable-http`) definí `MCP_API_KEY`; ver `.env.
 
 ## Actualizar skills
 
-Las skills se hornean en la imagen al construirla: para servir una versión nueva se reconstruye y redespliega. En local alcanza con volver a correr `scripts/sync_skills.py` y reiniciar el proceso.
+Las skills se hornean en la imagen al construirla: para servir una versión nueva se reconstruye y redespliega.
+
+- `config/sources.lock.json` fija las fuentes: SHA de `superpowers`, `my_skills` sigue `main` y versión exacta de `modern-web-guidance`. `scripts/sync_skills.py` sincroniza exactamente lo que dice el lock (`--lock PATH` para otro archivo).
+- `uv run python scripts/sync_skills.py --update-lock` sincroniza lo último de cada fuente y reescribe el lock.
+- `.github/workflows/update-skills.yml` corre cada lunes 06:00 UTC (y a mano), ejecuta los evals y abre/actualiza el PR `bot/update-skills` con links de comparación. El deploy ocurre al mergear ese PR (push a `main`); el workflow de deploy ya no tiene schedule.
+- Un push a `my_skills` puede disparar un redeploy vía `repository_dispatch` (`skills-updated`), una vez configurado el secret `MCP_DISPATCH_TOKEN` en el repo `my_skills`.
+
+## Docker
+
+Mientras `my_skills` sea privado, el build necesita el token como secret:
+
+```bash
+GITHUB_TOKEN=... docker build --secret id=github_token,env=GITHUB_TOKEN -t devteam-skills-mcp .
+```
 
 ## Desarrollo
 
