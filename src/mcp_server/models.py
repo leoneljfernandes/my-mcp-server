@@ -57,6 +57,9 @@ class RoleSummary(BaseModel):
     on_demand_count: int = Field(
         description="Number of on-demand skills cataloged for progressive loading"
     )
+    core_tokens: int = Field(
+        default=0, description="Estimated token cost of the role's core skills bundle"
+    )
     missing_patterns: list[str] = Field(
         default_factory=list,
         description="Configured paths or globs that matched no files on disk",
@@ -75,6 +78,9 @@ class SkillSummary(BaseModel):
     references: list[str] = Field(
         default_factory=list,
         description="Auxiliary reference Markdown files inside this skill (relative to source)",
+    )
+    token_estimate: int = Field(
+        default=0, description="Estimated token cost of loading this skill (precomputed or chars/4)"
     )
 
 

@@ -201,3 +201,35 @@ def test_check_role_integrity_reports_kinds(registry: SkillRegistry) -> None:
     assert ("backend", "unassigned_reference", "writing-plans") in found
     assert ("backend", "unassigned_reference", "brainstorming") not in found  # está en shared
     assert ("db", "missing_pattern", "my_skills/skills/nonexistent-folder") in found
+
+
+def test_search_without_role_keeps_all_sources(registry: SkillRegistry) -> None:
+    hits = registry.search_skills("animate dialog top layer")
+    assert hits[0].id == "animate-to-from-top-layer"
+
+
+def test_role_with_web_guidance_includes_guides(registry: SkillRegistry) -> None:
+    hits = registry.search_skills("animate dialog top layer", role="frontend")
+    assert hits[0].id == "animate-to-from-top-layer"
+    assert all(
+        h.source != "modern-web-guidance"
+        for h in registry.search_skills("animate dialog top layer", role="backend")
+    )
+
+
+def test_search_scoped_to_role(registry: SkillRegistry) -> None:
+    backend_ids = [h.id for h in registry.search_skills("prometheus metrics", role="backend")]
+    assert "exposing-prometheus-metrics" in backend_ids
+    db_hits = registry.search_skills("prometheus metrics", role="db")
+    assert "exposing-prometheus-metrics" not in [h.id for h in db_hits]
+    assert all((h.source, h.id) in registry.allowed_skill_ids("db") for h in db_hits)
+
+
+def test_search_unknown_role_raises(registry: SkillRegistry) -> None:
+    with pytest.raises(RoleNotFoundError):
+        registry.search_skills("x", role="nope")
+
+
+def test_token_estimates_exposed(registry: SkillRegistry) -> None:
+    assert all(s.token_estimate > 0 for s in registry.list_skills())
+    assert all(r.core_tokens > 0 for r in registry.list_roles() if r.core_count)

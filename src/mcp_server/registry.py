@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -182,6 +183,13 @@ def _token_overlap_count(query_tokens: list[str], target_text: str) -> int:
         if any(t.startswith(q_tok) or q_tok.startswith(t) for t in target_tokens if len(t) > 2):
             matched += 1
     return matched
+
+
+def _estimate_tokens(skill: IndexedSkill) -> int:
+    """Token cost of a skill: precomputed count if available, else ceil(chars / 4)."""
+    if skill.token_count is not None:
+        return skill.token_count
+    return math.ceil(len(skill.content) / 4)
 
 
 def _validate_search_args(query: str, limit: int) -> tuple[str, int]:
@@ -590,6 +598,7 @@ class SkillRegistry:
                 description=resolved.config.description,
                 core_count=len(resolved.core),
                 on_demand_count=len(resolved.on_demand),
+                core_tokens=sum(_estimate_tokens(sk) for sk in resolved.core),
                 missing_patterns=list(resolved.missing_patterns),
             )
             for resolved in self._resolved_roles.values()
@@ -611,6 +620,7 @@ class SkillRegistry:
                         description=item.description,
                         category=item.category,
                         references=list(item.references),
+                        token_estimate=_estimate_tokens(item),
                     )
                 )
         return results
@@ -767,13 +777,14 @@ class SkillRegistry:
         *,
         source: SourceName | None,
         limit: int,
+        allowed: frozenset[tuple[SourceName, str]] | None = None,
     ) -> list[tuple[sqlite3.Row, float]]:
         tokens = _extract_query_tokens(query)
         fts_expr = _build_fts_query(tokens)
         if fts_expr is None:
             return []
 
-        candidate_limit = max(limit * 6, 30)
+        candidate_limit = 200 if allowed is not None else max(limit * 6, 30)
         sql_base = (
             "SELECT source, skill_id, name, relative_path, "
             "-bm25(skills_fts, 0.0, 0.0, 8.0, 3.0, 5.0, 0.0, 1.0) AS score, "
@@ -804,6 +815,8 @@ class SkillRegistry:
                 final_score = base_score + (name_hits * 6.0) + (desc_hits * 3.0)
             else:
                 final_score = base_score
+            if allowed is not None and (src, sid) not in allowed:
+                continue
             reranked.append((row, final_score))
 
         reranked.sort(key=lambda item: item[1], reverse=True)
@@ -815,12 +828,14 @@ class SkillRegistry:
         *,
         source: SourceName | None = None,
         limit: int = 10,
+        role: str | None = None,
     ) -> list[SearchHit]:
         cleaned, valid_limit = _validate_search_args(query, limit)
+        allowed = self.allowed_skill_ids(role) if role is not None else None
         if source is not None and source not in VALID_SOURCES:
             raise InputValidationError(f"Unknown source {source!r}; valid sources: {VALID_SOURCES}")
 
-        scored_rows = self._run_fts_query(cleaned, source=source, limit=valid_limit)
+        scored_rows = self._run_fts_query(cleaned, source=source, limit=valid_limit, allowed=allowed)
         return [
             SearchHit(
                 source=cast(SourceName, str(row["source"])),

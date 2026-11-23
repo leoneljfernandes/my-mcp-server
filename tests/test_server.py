@@ -51,6 +51,13 @@ async def test_mcp_tools_annotations_resources_and_prompts(
         )
         assert "client-side-encryption" in str(mwg_search.content)
 
+        scoped = await client.call_tool(
+            "search_skills", {"query": "animate dialog top layer", "role": "backend"}
+        )
+        assert "animate-to-from-top-layer" not in str(scoped.content)
+        skills_res = await client.call_tool("list_skills", {})
+        assert "token_estimate" in str(skills_res.content)
+
         # Resource templates (including wildcard {skill_name*} with slashes)
         role_resource = await client.read_resource("skills://roles/backend")
         assert "Keep HTTP routers thin" in str(role_resource)

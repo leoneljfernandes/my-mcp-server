@@ -128,9 +128,15 @@ def create_server(
         query: str,
         source: SourceName | None = None,
         limit: int = 10,
+        role: str | None = None,
     ) -> list[SearchHit]:
-        """Search skills and guides using SQLite FTS5 BM25 ranking."""
-        return reg.search_skills(query, source=source, limit=limit)
+        """Search skills and guides using SQLite FTS5 BM25 ranking.
+
+        `role` scopes the search to that role's skills (core, on-demand and shared;
+        modern-web-guidance guides only for web roles). Recommended for agents with an
+        assigned role. Without `role`, all sources are searched.
+        """
+        return reg.search_skills(query, source=source, limit=limit, role=role)
 
     @mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
     def search_modern_web_guidance(query: str, limit: int = 10) -> list[WebGuideSummary]:
