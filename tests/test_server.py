@@ -111,7 +111,7 @@ async def test_streamable_http_bearer_auth_and_public_health(
         assert health.status_code == 200
         body = health.json()
         assert body["status"] == "healthy"
-        assert body["roles_count"] == 2
+        assert body["roles_count"] == 3
         assert body["sync_meta"]["sources"]["modern-web-guidance"]["version"] == "1.0.1"
 
         # 2. /mcp without token -> 401

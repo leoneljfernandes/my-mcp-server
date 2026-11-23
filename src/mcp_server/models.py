@@ -37,12 +37,14 @@ class RoleConfig(BaseModel):
     instructions: str = ""
     core: list[str] = Field(default_factory=list)
     on_demand: list[str] = Field(default_factory=list)
+    web_guidance: bool = False
 
 
 class RolesFileConfig(BaseModel):
     """Root schema for config/roles.yaml."""
 
     precedence_rules: str = ""
+    shared_on_demand: list[str] = Field(default_factory=list)
     roles: dict[str, RoleConfig] = Field(default_factory=dict)
 
 

@@ -160,7 +160,7 @@ def create_server(
     # ------------------------------------------------------------------
     @mcp.prompt()
     def bootstrap_agent(
-        role: Literal["supervisor", "db", "backend", "frontend", "qa", "security"] | str,
+        role: Literal["supervisor", "db", "backend", "frontend", "qa", "security", "observability"] | str,
         task: str,
         include_on_demand: bool = False,
     ) -> str:

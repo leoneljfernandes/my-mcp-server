@@ -130,6 +130,10 @@ precedence_rules: |
   2. my_skills (architecture)
   3. modern-web-guidance (web platform)
 
+shared_on_demand:
+  - superpowers/skills/brainstorming
+  - superpowers/skills/test-driven-development
+
 roles:
   backend:
     description: Backend FastAPI engineer
@@ -147,6 +151,12 @@ roles:
     core:
       - my_skills/skills/database/*
       - my_skills/skills/nonexistent-folder
+    on_demand: []
+  frontend:
+    description: Frontend engineer
+    web_guidance: true
+    core:
+      - superpowers/skills/brainstorming
     on_demand: []
 """.strip()
         + "\n",

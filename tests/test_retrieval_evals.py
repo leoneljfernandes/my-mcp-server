@@ -28,9 +28,9 @@ def real_registry() -> SkillRegistry:
     reg.close()
 
 
-def test_all_six_roles_loaded_from_real_corpus(real_registry: SkillRegistry) -> None:
+def test_all_roles_loaded_from_real_corpus(real_registry: SkillRegistry) -> None:
     roles = {r.name: r for r in real_registry.list_roles()}
-    assert set(roles) == {"supervisor", "db", "backend", "frontend", "qa", "security"}
+    assert set(roles) == {"supervisor", "db", "backend", "frontend", "qa", "security", "observability"}
     for name, role in roles.items():
         assert role.core_count >= 1, f"Role {name} has no core skills loaded"
 

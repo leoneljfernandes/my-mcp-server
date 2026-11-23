@@ -19,7 +19,7 @@ def test_list_roles_deduplicates_core_from_on_demand_and_tracks_missing(
     registry: SkillRegistry,
 ) -> None:
     roles = {r.name: r for r in registry.list_roles()}
-    assert set(roles) == {"backend", "db"}
+    assert set(roles) == {"backend", "db", "frontend"}
 
     # backend core has 3 items (tdd, layering-fastapi-apps, security.md).
     # on_demand globs backend/* (contains layering-fastapi-apps already in core + scaffolding)
@@ -159,3 +159,37 @@ def test_bootstrap_agent_prompt_includes_precedence_skills_and_task(
     assert "superpowers (process)" in prompt
     assert "Implementar endpoint /orders" in prompt
     assert "Keep HTTP routers thin" in prompt
+
+
+def test_shared_on_demand_listed_in_every_role_and_deduplicated(registry: SkillRegistry) -> None:
+    for role in ("backend", "db"):
+        shared = registry.get_role_skills(role).split("## Catálogo Compartido")[1]
+        assert "`superpowers` / `brainstorming`" in shared
+    backend_shared = registry.get_role_skills("backend").split("## Catálogo Compartido")[1]
+    assert "`superpowers` / `test-driven-development`" not in backend_shared  # ya es core
+    db_shared = registry.get_role_skills("db").split("## Catálogo Compartido")[1]
+    assert "`superpowers` / `test-driven-development`" in db_shared
+
+
+def test_shared_catalog_stays_catalog_with_include_on_demand(registry: SkillRegistry) -> None:
+    bundle = registry.get_role_skills("db", include_on_demand=True)
+    shared = bundle.split("## Catálogo Compartido")[1]
+    assert "`superpowers` / `brainstorming`" in shared
+    assert "Always align on design before coding." not in bundle
+
+
+def test_allowed_skill_ids_union(registry: SkillRegistry) -> None:
+    ids = registry.allowed_skill_ids("backend")
+    assert ("superpowers", "brainstorming") in ids
+    assert ("my_skills", "layering-fastapi-apps") in ids
+    assert not any(source == "modern-web-guidance" for source, _ in ids)
+
+
+def test_web_guidance_flag_adds_catalog_line_and_allows_guides(registry: SkillRegistry) -> None:
+    assert "Modern Web Guidance" not in registry.get_role_skills("backend")
+    bundle = registry.get_role_skills("frontend")
+    assert "Modern Web Guidance" in bundle
+    assert "3 guías" in bundle
+    assert "security, ui-atoms, ui-behaviors" in bundle
+    ids = registry.allowed_skill_ids("frontend")
+    assert ("modern-web-guidance", "client-side-encryption") in ids
