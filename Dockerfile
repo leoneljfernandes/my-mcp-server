@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ---- Stage 1: Sync skills + install locked Python dependencies with uv ----
-FROM ghcr.io/astral-sh/uv:0.6-python3.14-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:0.9-python3.14-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -13,16 +13,16 @@ RUN apt-get update \
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 COPY src ./src
 COPY scripts ./scripts
 COPY config ./config
 
-RUN uv sync --no-dev --frozen || uv sync --no-dev
+RUN uv sync --no-dev --locked
 
 # Bake synced skills into the image for fast serverless cold starts (Cloud Run / Render / HF)
 RUN --mount=type=secret,id=github_token,required=false \
-    sh -c 'if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; python3 scripts/sync_skills.py --skills-dir /app/skills_store'
+    sh -c 'if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; python3 scripts/sync_skills.py --lock /app/config/sources.lock.json --skills-dir /app/skills_store'
 
 
 # ---- Stage 2: Minimal non-root runtime image (read-only skills, no git, no Node.js) ----
