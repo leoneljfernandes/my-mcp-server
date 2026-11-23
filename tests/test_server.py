@@ -56,6 +56,8 @@ async def test_mcp_tools_annotations_resources_and_prompts(
         scoped = await client.call_tool(
             "search_skills", {"query": "animate dialog top layer", "role": "backend"}
         )
+        assert not scoped.is_error
+        assert scoped.structured_content is not None
         assert "animate-to-from-top-layer" not in str(scoped.content)
         skills_res = await client.call_tool("list_skills", {})
         assert "token_estimate" in str(skills_res.content)

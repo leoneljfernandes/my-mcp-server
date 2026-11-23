@@ -156,8 +156,27 @@ def test_sync_git_repo_branch_ref(tmp_path: Path, local_repo_two_commits: LocalR
 def test_sync_git_repo_unknown_sha_fails_naming_source(
     tmp_path: Path, local_repo_two_commits: LocalRepo
 ) -> None:
-    with pytest.raises(RuntimeError, match="x"):
+    with pytest.raises(RuntimeError, match="Source 'x'"):
         sync_git_repo("x", local_repo_two_commits.url, tmp_path / "x", ref="0" * 40)
+
+
+def test_main_returns_1_on_unknown_pinned_sha(
+    tmp_path: Path, local_repo_two_commits: LocalRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sync_mod, "GIT_SOURCES", {"superpowers": local_repo_two_commits.url})
+    lock_path = tmp_path / "lock.json"
+    lock_path.write_text(json.dumps({"superpowers": {"ref": "0" * 40}}), encoding="utf-8")
+    rc = main(
+        [
+            "--skills-dir",
+            str(tmp_path / "store"),
+            "--lock",
+            str(lock_path),
+            "--source",
+            "superpowers",
+        ]
+    )
+    assert rc == 1
 
 
 def test_load_lock_reads_and_validates(tmp_path: Path) -> None:
