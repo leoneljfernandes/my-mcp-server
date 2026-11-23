@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess  # noqa: S404
 import sys
@@ -74,31 +75,62 @@ def _run_git(args: list[str], *, cwd: Path | None, env: dict[str, str]) -> str:
     return result.stdout.strip()
 
 
+_SHA_RE = re.compile(r"[0-9a-f]{40}")
+DEFAULT_LOCK_PATH = Path(__file__).resolve().parent.parent / "config" / "sources.lock.json"
+ALL_SOURCES = ("superpowers", "my_skills", "modern-web-guidance")
+
+
+def load_lock(path: Path) -> dict[str, dict[str, str]]:
+    """Load and validate ``sources.lock.json`` (source name -> {ref|version: value})."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Lock file {path} must contain a JSON object")
+    lock: dict[str, dict[str, str]] = {}
+    for name, entry in data.items():
+        if not isinstance(entry, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in entry.items()
+        ):
+            raise ValueError(f"Lock entry {name!r} in {path} must be an object of strings")
+        lock[str(name)] = dict(entry)
+    return lock
+
+
 def sync_git_repo(
     name: str,
     url: str,
     target_dir: Path,
     *,
     github_token: str | None = None,
+    ref: str | None = None,
 ) -> dict[str, str]:
-    """Clone (--depth 1) or reset-update a read-only git repository idempotently."""
+    """Fetch (--depth 1) a read-only git repository at ``ref`` (default: remote HEAD) idempotently."""
     env = _build_git_env(github_token if "github.com" in url else None)
     git_dir = target_dir / ".git"
 
     if git_dir.is_dir():
         LOGGER.info("Updating git source '%s' in %s", name, target_dir)
-        _run_git(["fetch", "--depth", "1", "origin"], cwd=target_dir, env=env)
-        _run_git(["reset", "--hard", "FETCH_HEAD"], cwd=target_dir, env=env)
-        _run_git(["clean", "-fd"], cwd=target_dir, env=env)
+        _run_git(["remote", "set-url", "origin", url], cwd=target_dir, env=env)
     else:
         if target_dir.exists():
             shutil.rmtree(target_dir)
-        target_dir.parent.mkdir(parents=True, exist_ok=True)
-        LOGGER.info("Cloning git source '%s' into %s", name, target_dir)
-        _run_git(["clone", "--depth", "1", url, str(target_dir)], cwd=None, env=env)
+        target_dir.mkdir(parents=True)
+        LOGGER.info("Initializing git source '%s' in %s", name, target_dir)
+        _run_git(["init", "-q"], cwd=target_dir, env=env)
+        _run_git(["remote", "add", "origin", url], cwd=target_dir, env=env)
 
-    commit = _run_git(["rev-parse", "HEAD"], cwd=target_dir, env=env)
-    return {"type": "git", "url": url, "commit": commit}
+    try:
+        _run_git(["fetch", "--depth", "1", "origin", ref or "HEAD"], cwd=target_dir, env=env)
+        _run_git(["reset", "--hard", "FETCH_HEAD"], cwd=target_dir, env=env)
+        _run_git(["clean", "-fd"], cwd=target_dir, env=env)
+        commit = _run_git(["rev-parse", "HEAD"], cwd=target_dir, env=env)
+    except RuntimeError as exc:
+        raise RuntimeError(f"Source '{name}' could not be synced at ref {ref or 'HEAD'!r}: {exc}") from exc
+    if ref and _SHA_RE.fullmatch(ref) and commit != ref:
+        raise RuntimeError(f"Source '{name}' resolved to {commit}, expected pinned {ref}")
+    meta = {"type": "git", "url": url, "commit": commit}
+    if ref:
+        meta["ref"] = ref
+    return meta
 
 
 def _validate_https_url(url: str, *, allowed_host: str) -> None:
@@ -223,10 +255,15 @@ def sync_all(
     skills_dir: Path,
     *,
     github_token: str | None = None,
-    mwg_version: str = "latest",
     sources: list[str] | None = None,
+    lock: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Synchronize all configured sources and write ``.sync_meta.json``."""
+    """Synchronize all configured sources and write ``.sync_meta.json``.
+
+    With ``lock`` each source is pinned to its locked ref/version; without it the
+    latest upstream state is fetched.
+    """
+    lock = lock or {}
     skills_dir = skills_dir.resolve()
     skills_dir.mkdir(parents=True, exist_ok=True)
 
@@ -238,7 +275,7 @@ def sync_all(
         except (OSError, json.JSONDecodeError):
             existing_sources = {}
 
-    selected = set(sources) if sources else {"superpowers", "my_skills", "modern-web-guidance"}
+    selected = set(sources) if sources else set(ALL_SOURCES)
     updated_sources: dict[str, Any] = dict(existing_sources)
 
     for name, url in GIT_SOURCES.items():
@@ -249,12 +286,13 @@ def sync_all(
             url,
             skills_dir / name,
             github_token=github_token,
+            ref=lock.get(name, {}).get("ref"),
         )
 
     if "modern-web-guidance" in selected:
         updated_sources["modern-web-guidance"] = sync_npm_modern_web_guidance(
             skills_dir / "modern-web-guidance",
-            version=mwg_version,
+            version=lock.get(NPM_PACKAGE_NAME, {}).get("version", "latest"),
         )
 
     meta: dict[str, Any] = {
@@ -264,6 +302,26 @@ def sync_all(
     meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     LOGGER.info("Sync completed successfully. Metadata written to %s", meta_path)
     return meta
+
+
+def _write_lock(
+    path: Path,
+    old: dict[str, dict[str, str]],
+    meta: dict[str, Any],
+    sources: list[str] | None,
+) -> None:
+    """Rewrite the lock with refs resolved by a latest-sync (branch-tracking sources keep their ref)."""
+    selected = set(sources) if sources else set(ALL_SOURCES)
+    new = {name: dict(entry) for name, entry in old.items()}
+    resolved = meta["sources"]
+    if "superpowers" in selected:
+        new["superpowers"] = {"ref": str(resolved["superpowers"]["commit"])}
+    if "my_skills" in selected:
+        new["my_skills"] = dict(old.get("my_skills", {"ref": "main"}))
+    if "modern-web-guidance" in selected:
+        new["modern-web-guidance"] = {"version": str(resolved["modern-web-guidance"]["version"])}
+    path.write_text(json.dumps(new, indent=2) + "\n", encoding="utf-8")
+    LOGGER.info("Lock file %s updated", path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -281,9 +339,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Sync only specific source(s); repeatable",
     )
     parser.add_argument(
-        "--mwg-version",
-        default=os.environ.get("MODERN_WEB_GUIDANCE_VERSION", "latest"),
-        help="npm version/tag for modern-web-guidance (default: latest)",
+        "--lock",
+        type=Path,
+        default=DEFAULT_LOCK_PATH,
+        help="Lock file pinning source versions (default: config/sources.lock.json)",
+    )
+    parser.add_argument(
+        "--update-lock",
+        action="store_true",
+        help="Sync to the latest upstream state and rewrite the lock file with resolved refs",
     )
     args = parser.parse_args(argv)
 
@@ -293,12 +357,13 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        sync_all(
-            args.skills_dir,
-            github_token=os.environ.get("GITHUB_TOKEN") or None,
-            mwg_version=args.mwg_version,
-            sources=args.source,
-        )
+        lock = load_lock(args.lock)
+        token = os.environ.get("GITHUB_TOKEN") or None
+        if args.update_lock:
+            meta = sync_all(args.skills_dir, github_token=token, sources=args.source, lock=None)
+            _write_lock(args.lock, lock, meta, args.source)
+        else:
+            sync_all(args.skills_dir, github_token=token, sources=args.source, lock=lock)
     except (RuntimeError, ValueError, OSError, urllib.error.URLError) as exc:
         LOGGER.error("Skill sync failed: %s", exc)
         return 1

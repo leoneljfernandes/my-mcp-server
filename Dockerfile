@@ -21,8 +21,6 @@ COPY config ./config
 RUN uv sync --no-dev --frozen || uv sync --no-dev
 
 # Bake synced skills into the image for fast serverless cold starts (Cloud Run / Render / HF)
-ARG MODERN_WEB_GUIDANCE_VERSION=latest
-ENV MODERN_WEB_GUIDANCE_VERSION=${MODERN_WEB_GUIDANCE_VERSION}
 RUN --mount=type=secret,id=github_token,required=false \
     sh -c 'if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; python3 scripts/sync_skills.py --skills-dir /app/skills_store'
 
