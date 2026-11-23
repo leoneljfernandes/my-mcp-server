@@ -216,6 +216,35 @@ def test_sync_uses_lock_pins(
     monkeypatch.setattr(sync_mod, "sync_npm_modern_web_guidance", fake_npm)
     first_sha, _ = local_repo_two_commits.shas
     lock = {"superpowers": {"ref": first_sha}, "modern-web-guidance": {"version": "1.0.1"}}
-    meta = sync_mod.sync_all(tmp_path / "store", lock=lock)
+    meta = sync_mod.sync_all(
+        tmp_path / "store", sources=["superpowers", "modern-web-guidance"], lock=lock
+    )
     assert meta["sources"]["superpowers"]["commit"] == first_sha
     assert seen == ["1.0.1"]
+
+
+@pytest.mark.parametrize(
+    "lock",
+    [
+        {},
+        {"superpower": {"ref": "a" * 40}},
+        {"superpowers": {"rev": "a" * 40}},
+        {"superpowers": {"ref": ""}},
+    ],
+)
+def test_sync_all_requires_lock_entry_for_selected_source(
+    tmp_path: Path, lock: dict[str, dict[str, str]]
+) -> None:
+    with pytest.raises(ValueError, match="superpowers"):
+        sync_mod.sync_all(tmp_path / "store", sources=["superpowers"], lock=lock)
+
+
+def test_sync_all_requires_mwg_version(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="modern-web-guidance"):
+        sync_mod.sync_all(tmp_path / "store", sources=["modern-web-guidance"], lock={})
+
+
+def test_main_returns_1_on_incomplete_lock(tmp_path: Path) -> None:
+    lock_path = tmp_path / "lock.json"
+    lock_path.write_text('{"superpower": {"ref": "abc"}}', encoding="utf-8")
+    assert main(["--skills-dir", str(tmp_path / "store"), "--lock", str(lock_path)]) == 1

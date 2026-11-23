@@ -263,7 +263,6 @@ def sync_all(
     With ``lock`` each source is pinned to its locked ref/version; without it the
     latest upstream state is fetched.
     """
-    lock = lock or {}
     skills_dir = skills_dir.resolve()
     skills_dir.mkdir(parents=True, exist_ok=True)
 
@@ -276,6 +275,11 @@ def sync_all(
             existing_sources = {}
 
     selected = set(sources) if sources else set(ALL_SOURCES)
+    if lock is not None:
+        for name in sorted(selected):
+            key = "version" if name == NPM_PACKAGE_NAME else "ref"
+            if not lock.get(name, {}).get(key):
+                raise ValueError(f"Lock file has no '{key}' for source '{name}'; refusing to unpin")
     updated_sources: dict[str, Any] = dict(existing_sources)
 
     for name, url in GIT_SOURCES.items():
@@ -286,13 +290,13 @@ def sync_all(
             url,
             skills_dir / name,
             github_token=github_token,
-            ref=lock.get(name, {}).get("ref"),
+            ref=lock.get(name, {}).get("ref") if lock else None,
         )
 
     if "modern-web-guidance" in selected:
         updated_sources["modern-web-guidance"] = sync_npm_modern_web_guidance(
             skills_dir / "modern-web-guidance",
-            version=lock.get(NPM_PACKAGE_NAME, {}).get("version", "latest"),
+            version=lock[NPM_PACKAGE_NAME]["version"] if lock else "latest",
         )
 
     meta: dict[str, Any] = {
