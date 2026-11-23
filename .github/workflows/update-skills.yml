@@ -7,16 +7,24 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: update-skills
+  cancel-in-progress: false
 
 jobs:
   update:
     name: Resolve latest sources and open PR
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -27,7 +35,7 @@ jobs:
         run: uv python install 3.14
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --locked
 
       - name: Sync to latest and rewrite lock
         env:
@@ -64,6 +72,7 @@ jobs:
       - name: Open or update pull request
         uses: peter-evans/create-pull-request@v7
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           branch: bot/update-skills
           add-paths: config/sources.lock.json
           commit-message: "chore(sync): update skill sources"
