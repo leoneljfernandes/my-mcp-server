@@ -1,0 +1,123 @@
+# Mapeo declarativo de roles a skills para DevTeam Skills MCP.
+#
+# Formatos soportados en `core` y `on_demand`:
+# - Carpeta de una skill (carga SKILL.md):     "superpowers/skills/brainstorming"
+# - Archivo Markdown puntual o referencia:     "my_skills/skills/backend/scaffolding-fastapi-backends/references/security.md"
+# - Glob de categoría (auto-expande y dedup):  "my_skills/skills/database/*"
+#
+# Si una ruta o glob aún no existe (por ejemplo mientras `my_skills` evoluciona),
+# el servidor registra un warning y continúa cargando el resto sin fallar.
+
+precedence_rules: |
+  ### Jerarquía de Precedencia entre Fuentes
+  1. **obra/superpowers (Proceso e ingeniería):** gobierna *cómo* trabajás (brainstorming, planificación, TDD, debugging sistemático, verificación antes de cerrar y code review).
+  2. **my_skills (Arquitectura y decisiones de stack):** gobierna *con qué y cómo* se construye el proyecto (scaffolding, FastAPI, PostgreSQL/SQLAlchemy/Alembic, React, observabilidad y testing).
+  3. **modern-web-guidance (Plataforma web moderna):** gobierna *qué APIs nativas* de HTML/CSS/JS usar en el navegador, adaptándolas al stack de `my_skills` sin degradar a patrones o librerías obsoletas.
+
+roles:
+  supervisor:
+    description: >-
+      Arquitecto y coordinador técnico: realiza brainstorming, define planes de ejecución,
+      divide tareas paralelizables y fija requisitos de seguridad antes de delegar.
+    instructions: >-
+      Antes de delegar cualquier implementación, definí explícitamente en el plan:
+      (1) requisitos de autenticación y autorización (RBAC/permisos por recurso),
+      (2) protección contra IDOR y validación de ownership,
+      (3) tratamiento de datos sensibles/PII y secretos.
+      Consultá las skills `on_demand` con `get_skill` cuando el plan involucre frontend o controles de seguridad específicos.
+    core:
+      - superpowers/skills/brainstorming
+      - superpowers/skills/writing-plans
+      - superpowers/skills/dispatching-parallel-agents
+      - my_skills/skills/backend/scaffolding-fastapi-backends
+      - my_skills/skills/backend/scaffolding-fastapi-backends/references/security.md
+    on_demand:
+      - my_skills/skills/frontend/choosing-ssr-or-spa
+      - my_skills/skills/frontend/architecting-react-apps
+
+  db:
+    description: >-
+      Especialista en bases de datos relacionales (PostgreSQL, SQLAlchemy, Alembic):
+      modelado, sesiones async/sync, migraciones seguras y performance.
+    instructions: >-
+      Aplicá principio de mínimo privilegio en roles de Postgres, queries parametrizadas
+      y migraciones reversibles sin bloqueos largos. Verificá cada cambio con tests reales antes de cerrar.
+    core:
+      - superpowers/skills/test-driven-development
+      - superpowers/skills/verification-before-completion
+      - superpowers/skills/receiving-code-review
+      - my_skills/skills/database/*
+    on_demand: []
+
+  backend:
+    description: >-
+      Ingeniero Backend Python/FastAPI: arquitectura por capas, configuración, manejo de errores,
+      seguridad de APIs y observabilidad (logs, métricas, trazas y SLOs).
+    instructions: >-
+      Construí seguro por defecto: validación estricta con Pydantic, autorización explícita
+      en cada endpoint (anti-IDOR), cookies seguras, sin filtrar stacktraces ni secretos/PII en logs.
+      Usá `get_skill` sobre el catálogo `on_demand` cuando toques scaffolding, settings, observabilidad o seguridad avanzada.
+    core:
+      - superpowers/skills/test-driven-development
+      - superpowers/skills/systematic-debugging
+      - superpowers/skills/verification-before-completion
+      - superpowers/skills/receiving-code-review
+      - my_skills/skills/backend/layering-fastapi-apps
+      - my_skills/skills/backend/handling-fastapi-errors
+      - my_skills/skills/backend/scaffolding-fastapi-backends/references/security.md
+    on_demand:
+      - my_skills/skills/backend/*
+      - my_skills/skills/observability/*
+
+  frontend:
+    description: >-
+      Ingeniero Frontend React/Web moderna: arquitectura SPA/SSR, clientes HTTP,
+      manejo de errores, rendimiento y APIs nativas de plataforma web.
+    instructions: >-
+      OBLIGATORIO antes de implementar o modificar cualquier UI, HTML, CSS o JS del navegador:
+      llamá primero a `search_modern_web_guidance(query)` y luego a `retrieve_modern_web_guidance(guide_id)`
+      (incluyendo guías de `security` cuando haya inputs HTML, formularios, auth o CSP) y adaptá los patrones
+      nativos modernos al stack React definido en `my_skills` sin degradar a workarounds obsoletos.
+    core:
+      - superpowers/skills/test-driven-development
+      - superpowers/skills/systematic-debugging
+      - superpowers/skills/verification-before-completion
+      - superpowers/skills/receiving-code-review
+      - my_skills/skills/frontend/architecting-react-apps
+      - my_skills/skills/frontend/handling-react-errors
+    on_demand:
+      - my_skills/skills/frontend/*
+
+  qa:
+    description: >-
+      Ingeniero de QA y Testing: pruebas unitarias y de integración, validación de contratos,
+      revisión de código y verificación de controles básicos de seguridad.
+    instructions: >-
+      Al auditar frontend, consultá `search_modern_web_guidance` / `retrieve_modern_web_guidance`
+      para verificar conformidad con estándares web modernos. Incluí siempre tests de autenticación,
+      permisos (401/403/anti-IDOR) y comprobá que los errores no filtren stacktraces ni secretos.
+    core:
+      - superpowers/skills/requesting-code-review
+      - superpowers/skills/systematic-debugging
+      - superpowers/skills/verification-before-completion
+      - my_skills/skills/testing/*
+      - my_skills/skills/backend/scaffolding-fastapi-backends/references/security.md
+    on_demand: []
+
+  security:
+    description: >-
+      AppSec Reviewer: auditoría de seguridad en paralelo con QA como gate obligatorio previo al PR.
+    instructions: >-
+      Ejecutá una auditoría sistemática orientada a:
+      (1) OWASP API Security Top 10 (auth, RBAC, IDOR/BOLA, mass assignment, rate limiting),
+      (2) cookies (`HttpOnly`, `Secure`, `SameSite`), headers de seguridad y CORS estricto,
+      (3) exposición de secretos, credenciales o PII en código, respuestas o logs,
+      (4) guías de seguridad web vía `search_modern_web_guidance("security")` / `retrieve_modern_web_guidance`,
+      (5) validación con herramientas estáticas y de dependencias (`bandit`, `pip-audit`, `npm audit`, `gitleaks`).
+      No apruebes el cambio si existen hallazgos críticos o altos sin remediar.
+    core:
+      - superpowers/skills/requesting-code-review
+      - superpowers/skills/systematic-debugging
+      - superpowers/skills/verification-before-completion
+      - my_skills/skills/backend/scaffolding-fastapi-backends/references/security.md
+    on_demand: []

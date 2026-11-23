@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Almacén sincronizado de skills (generado por scripts/sync_skills.py)
+skills_store/
+
+# IDEs / OS
+.DS_Store
+.vscode/
+.idea/
+graphify-out/
+
+# Workspace de ejecución de planes (superpowers SDD)
+.superpowers/
+.worktrees/

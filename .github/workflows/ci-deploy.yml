@@ -1,0 +1,116 @@
+name: CI & Auto-Deploy DevTeam Skills MCP
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Reconstruye y actualiza las 3 fuentes cada lunes a las 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  repository_dispatch:
+    # Permite disparar redeploy desde un workflow de `my_skills` al hacer push
+    types: [skills-updated]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Lint, Typecheck & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.14
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Mypy strict
+        run: uv run mypy src scripts
+
+      - name: Unit tests (sin evals de red)
+        run: uv run pytest -m "not eval" -q
+
+  evals:
+    name: Sync & Retrieval Evals (Top-3)
+    needs: ci
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.14
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Sync skills sources
+        env:
+          GITHUB_TOKEN: ${{ secrets.MY_SKILLS_GITHUB_TOKEN }}
+        run: uv run python scripts/sync_skills.py
+
+      - name: Run retrieval evals
+        run: uv run pytest -m eval -v
+
+  deploy:
+    name: Build & Deploy (Cloud Run / Render)
+    needs: [ci, evals]
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Opción A: Google Cloud Run (configurar secrets GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT, GCP_PROJECT_ID)
+      - name: Authenticate to Google Cloud
+        if: ${{ vars.DEPLOY_TARGET == 'cloud-run' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Google Cloud Run
+        if: ${{ vars.DEPLOY_TARGET == 'cloud-run' }}
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: devteam-skills-mcp
+          region: ${{ vars.GCP_REGION || 'us-central1' }}
+          source: .
+          flags: >-
+            --allow-unauthenticated
+            --set-env-vars=MCP_TRANSPORT=streamable-http,MCP_PATH=/mcp
+            --set-secrets=MCP_API_KEY=devteam-mcp-api-key:latest
+
+      # Opción B: Render Deploy Hook (configurar secret RENDER_DEPLOY_HOOK_URL y variable DEPLOY_TARGET=render)
+      - name: Trigger Render Deploy Hook
+        if: ${{ vars.DEPLOY_TARGET == 'render' }}
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: curl --fail --silent --show-error -X POST "$RENDER_DEPLOY_HOOK_URL"
