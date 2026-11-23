@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 import pytest
 from fastmcp import Client
@@ -9,7 +11,7 @@ from pydantic import SecretStr
 
 from mcp_server.config import Settings
 from mcp_server.registry import SkillRegistry
-from mcp_server.server import create_http_app, create_server
+from mcp_server.server import InsecureConfigError, create_http_app, create_server
 
 
 @pytest.mark.asyncio
@@ -141,3 +143,33 @@ async def test_streamable_http_bearer_auth_and_public_health(
         )
         assert ok.status_code == 200
         assert "DevTeam Skills MCP" in ok.text
+
+
+def _http_settings(registry: SkillRegistry, sample_roles_yaml, **extra) -> Settings:  # type: ignore[no-untyped-def]
+    return Settings(
+        MCP_TRANSPORT="streamable-http",
+        SKILLS_DIR=registry.skills_dir,
+        ROLES_CONFIG_PATH=sample_roles_yaml,
+        **extra,
+    )
+
+
+def test_http_app_refuses_to_start_without_api_key(sample_roles_yaml, registry) -> None:  # type: ignore[no-untyped-def]
+    cfg = _http_settings(registry, sample_roles_yaml)
+    with pytest.raises(InsecureConfigError, match="MCP_API_KEY"):
+        create_http_app(settings=cfg, registry=registry)
+
+
+def test_http_app_refuses_whitespace_only_api_key(sample_roles_yaml, registry) -> None:  # type: ignore[no-untyped-def]
+    cfg = _http_settings(registry, sample_roles_yaml, MCP_API_KEY=SecretStr("   "))
+    with pytest.raises(InsecureConfigError, match="MCP_API_KEY"):
+        create_http_app(settings=cfg, registry=registry)
+
+
+def test_http_app_allows_explicit_unauthenticated_opt_out(  # type: ignore[no-untyped-def]
+    sample_roles_yaml, registry, caplog
+) -> None:
+    cfg = _http_settings(registry, sample_roles_yaml, MCP_ALLOW_UNAUTHENTICATED=True)
+    with caplog.at_level(logging.WARNING):
+        assert create_http_app(settings=cfg, registry=registry) is not None
+    assert any(r.levelno == logging.WARNING and "MCP_ALLOW_UNAUTHENTICATED" in r.message for r in caplog.records)

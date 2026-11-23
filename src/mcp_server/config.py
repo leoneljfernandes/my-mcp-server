@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     mcp_path: str = Field(default="/mcp", alias="MCP_PATH")
 
     mcp_api_key: SecretStr | None = Field(default=None, alias="MCP_API_KEY")
+    mcp_allow_unauthenticated: bool = Field(default=False, alias="MCP_ALLOW_UNAUTHENTICATED")
     allowed_origins: str = Field(default="", alias="ALLOWED_ORIGINS")
 
     skills_dir: Path = Field(default=Path("./skills_store"), alias="SKILLS_DIR")

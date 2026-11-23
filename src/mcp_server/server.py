@@ -31,6 +31,26 @@ READ_ONLY_ANNOTATIONS = ToolAnnotations(
 )
 
 
+class InsecureConfigError(RuntimeError):
+    """Raised when the HTTP transport would start without authentication by accident."""
+
+
+def ensure_auth_configured(cfg: Settings) -> None:
+    """Fail closed: streamable-http requires MCP_API_KEY unless explicitly opted out."""
+    if cfg.api_key_value is not None:
+        return
+    if cfg.mcp_allow_unauthenticated:
+        LOGGER.warning(
+            "MCP_ALLOW_UNAUTHENTICATED is enabled: streamable-http is running WITHOUT "
+            "authentication. Use only for local development."
+        )
+        return
+    raise InsecureConfigError(
+        "MCP_API_KEY es obligatoria en streamable-http. Definila o, solo para desarrollo "
+        "local, MCP_ALLOW_UNAUTHENTICATED=true."
+    )
+
+
 def _build_native_skills_provider(registry: SkillRegistry) -> SkillCatalogProvider | None:
     """Build optional FastMCP v4.2+ SkillCatalogProvider with graceful degradation per skill."""
     loaded_skills: list[Skill] = []
@@ -182,6 +202,7 @@ def create_http_app(
 ) -> Any:
     """Build the stateless Streamable HTTP ASGI app (usable by uvicorn or tests)."""
     cfg = settings or get_settings()
+    ensure_auth_configured(cfg)
     mcp = create_server(settings=cfg, registry=registry)
     return mcp.http_app(
         path=cfg.mcp_path,
@@ -199,6 +220,8 @@ def main() -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
+    if cfg.mcp_transport == "streamable-http":
+        ensure_auth_configured(cfg)
     mcp = create_server(settings=cfg)
     if cfg.mcp_transport == "stdio":
         mcp.run(transport="stdio", show_banner=False)
