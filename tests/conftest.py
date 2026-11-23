@@ -30,7 +30,13 @@ def sample_skills_dir(tmp_path: Path) -> Path:
     _write(
         root / "superpowers/skills/test-driven-development/SKILL.md",
         "---\nname: test-driven-development\ndescription: Enforce red-green-refactor TDD cycles.\n---\n"
-        "# TDD\nWrite a failing test first, watch it fail, then implement minimal code.\n",
+        "# TDD\nWrite a failing test first, watch it fail, then implement minimal code.\n"
+        "REQUIRED: superpowers:writing-plans, superpowers:brainstorming, superpowers:no-existe\n",
+    )
+    _write(
+        root / "superpowers/skills/writing-plans/SKILL.md",
+        "---\nname: writing-plans\ndescription: Write implementation plans from specs.\n---\n"
+        "# Writing Plans\nBreak work into small tasks.\n",
     )
 
     # 2. my_skills (2-level nested categories + references/*.md)

@@ -17,6 +17,7 @@ from mcp_server.models import (
     InputValidationError,
     PathTraversalError,
     RoleConfig,
+    RoleIntegrityIssue,
     RoleNotFoundError,
     RolesFileConfig,
     RoleSummary,
@@ -34,6 +35,7 @@ MAX_SEARCH_LIMIT = 25
 MAX_GUIDE_IDS = 5
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
+_SUPERPOWERS_REF_RE = re.compile(r"superpowers:([a-z0-9-]+)")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
 _STOPWORDS: frozenset[str] = frozenset(
     {
@@ -679,6 +681,29 @@ class SkillRegistry:
         if resolved.config.web_guidance:
             skills.extend(self._web_guides_by_id.values())
         return frozenset((s.source, s.id) for s in skills)
+
+    def check_role_integrity(self) -> list[RoleIntegrityIssue]:
+        """Report unmatched role patterns and unresolved `superpowers:<id>` cross-references."""
+        issues: set[tuple[str, str, str, str]] = set()
+        for role_name, resolved in self._resolved_roles.items():
+            for pattern in resolved.missing_patterns:
+                issues.add((role_name, "", "missing_pattern", pattern))
+            allowed = self.allowed_skill_ids(role_name)
+            for skill in (*resolved.core, *resolved.on_demand):
+                for ref in set(_SUPERPOWERS_REF_RE.findall(skill.content)):
+                    if ("superpowers", ref) not in self._skills_by_source_and_id:
+                        issues.add((role_name, skill.id, "unknown_reference", ref))
+                    elif ("superpowers", ref) not in allowed:
+                        issues.add((role_name, skill.id, "unassigned_reference", ref))
+        return [
+            RoleIntegrityIssue(
+                role=role,
+                skill=skill,
+                kind=cast(Any, kind),
+                target=target,
+            )
+            for role, skill, kind, target in sorted(issues)
+        ]
 
     def _format_skill_block(self, skill: IndexedSkill) -> str:
         header = f"### [{skill.source}] {skill.name} (`{skill.relative_path}`)"

@@ -193,3 +193,11 @@ def test_web_guidance_flag_adds_catalog_line_and_allows_guides(registry: SkillRe
     assert "security, ui-atoms, ui-behaviors" in bundle
     ids = registry.allowed_skill_ids("frontend")
     assert ("modern-web-guidance", "client-side-encryption") in ids
+
+
+def test_check_role_integrity_reports_kinds(registry: SkillRegistry) -> None:
+    found = {(i.role, i.kind, i.target) for i in registry.check_role_integrity()}
+    assert ("backend", "unknown_reference", "no-existe") in found
+    assert ("backend", "unassigned_reference", "writing-plans") in found
+    assert ("backend", "unassigned_reference", "brainstorming") not in found  # está en shared
+    assert ("db", "missing_pattern", "my_skills/skills/nonexistent-folder") in found

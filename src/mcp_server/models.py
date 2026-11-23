@@ -78,6 +78,15 @@ class SkillSummary(BaseModel):
     )
 
 
+class RoleIntegrityIssue(BaseModel):
+    """A configuration problem found by `SkillRegistry.check_role_integrity`."""
+
+    role: str = Field(description="Role where the issue was found")
+    skill: str = Field(description="Skill id containing the reference (empty for missing patterns)")
+    kind: Literal["missing_pattern", "unknown_reference", "unassigned_reference"]
+    target: str = Field(description="Offending pattern or referenced superpowers skill id")
+
+
 class SearchHit(BaseModel):
     """Structured output model for `search_skills`."""
 

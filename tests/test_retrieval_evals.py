@@ -80,3 +80,7 @@ def test_search_modern_web_guidance_top3_retrieval(
     hits = real_registry.search_modern_web_guidance(query, limit=3)
     top3_ids = [h.id for h in hits]
     assert expected_id in top3_ids, f"Query {query!r}: expected {expected_id!r} in Top-3 {top3_ids}"
+
+
+def test_real_roles_have_no_integrity_issues(real_registry: SkillRegistry) -> None:
+    assert real_registry.check_role_integrity() == []
